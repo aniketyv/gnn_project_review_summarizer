@@ -1,7 +1,7 @@
 # GNN_Project_review_summarizer
 
 Project name - ReviewLens
-│
+
 ├── Module 1: Fake Review Detector  
 │   └── Anomaly detection using perplexity
 │       scoring from your trained model
