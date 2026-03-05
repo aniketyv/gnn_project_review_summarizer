@@ -1,0 +1,107 @@
+# configs/config.yaml
+
+project:
+  name: "GNN_Project_Review_Summarizer"
+  version: "1.0"
+  description: "Generative Neural Network for Opinion Summarization"
+  seed: 42
+
+# ── DATA ────────────────────────────────────────────────
+data:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  pretrain_dir: "data/pretrain"
+  finetune_dir: "data/finetune"
+  amazon:
+    review_files:
+      - "data/raw/All_Beauty.jsonl"
+      - "data/raw/Grocery_and_Gourmet.jsonl"
+      - "data/raw/Sports_and_Outdoors.jsonl"
+    max_rows_per_category: 50000
+
+  yelp:
+    review_file: "data/raw/yelp_academic_dataset_review.json"
+    max_rows: 100000
+    min_review_length: 50
+    max_review_length: 512
+    min_reviews_per_business: 10
+    max_reviews_per_business: 20
+    train_split: 0.70
+    val_split: 0.15
+    test_split: 0.15
+
+# ── TOKENIZER ───────────────────────────────────────────
+tokenizer:
+  vocab_size: 16000
+  min_frequency: 2
+  special_tokens:
+    pad: "<PAD>"
+    unk: "<UNK>"
+    bos: "<BOS>"
+    eos: "<EOS>"
+    sep: "<SEP>"
+    mask: "<MASK>"
+
+# ── MODEL ARCHITECTURE ──────────────────────────────────
+model:
+  d_model: 256
+  num_heads: 8
+  num_encoder_layers: 4
+  num_decoder_layers: 4
+  d_ff: 512
+  dropout: 0.1
+  max_seq_length: 1024
+  activation: "gelu"
+  norm_type: "pre"        # pre or post layer norm
+
+# ── PRETRAINING ─────────────────────────────────────────
+pretrain:
+  batch_size: 32
+  epochs: 10
+  learning_rate: 0.0003
+  weight_decay: 0.01
+  gradient_clip: 1.0
+  warmup_steps: 1000
+  save_every_epochs: 2
+  checkpoint_dir: "checkpoints/pretrain"
+  log_every_steps: 100
+  mask_probability: 0.15   # for masked language modeling
+
+# ── FINETUNING ──────────────────────────────────────────
+finetune:
+  batch_size: 16
+  epochs: 20
+  learning_rate: 0.00005   # always lower than pretrain lr
+  weight_decay: 0.01
+  gradient_clip: 1.0
+  warmup_steps: 500
+  save_every_epochs: 5
+  checkpoint_dir: "checkpoints/finetune"
+  log_every_steps: 50
+  max_reviews_per_sample: 10
+  max_summary_length: 80
+
+# ── INFERENCE ───────────────────────────────────────────
+inference:
+  temperature: 0.7
+  top_p: 0.92
+  top_k: 50
+  max_new_tokens: 100
+  num_beams: 4
+  repetition_penalty: 1.2
+
+# ── EVALUATION ──────────────────────────────────────────
+evaluation:
+  n_samples: 200
+  rouge_types:
+    - "rouge1"
+    - "rouge2"
+    - "rougeL"
+  bert_score_lang: "en"
+  results_dir: "results/scores"
+
+# ── DEVICE ──────────────────────────────────────────────
+device:
+  use_mps: true       # Apple Silicon GPU
+  use_cuda: false     # set true if moving to NVIDIA GPU
+  fallback_cpu: true  # fallback if MPS unavailable
