@@ -11,15 +11,24 @@ config = load_config()
 print("Loading data...")
 yelp_df = load_yelp_reviews(
     filepath=config["data"]["yelp"]["review_file"],
-    max_rows=5000
+    max_rows=100000 
 )
 amazon_df = load_amazon_reviews(
     filepath="data/raw/All_Beauty.jsonl",
-    max_rows=5000
+    max_rows=100000 
+)
+
+amazon_grocery = load_amazon_reviews(
+    filepath="data/raw/Grocery_and_Gourmet.jsonl",
+    max_rows=100000
+)
+amazon_sports = load_amazon_reviews(
+    filepath="data/raw/Sports_and_Outdoors.jsonl",
+    max_rows=100000
 )
 
 # Combine
-combined = pd.concat([yelp_df, amazon_df], ignore_index=True)
+combined = pd.concat([yelp_df, amazon_df,amazon_grocery,amazon_sports], ignore_index=True)
 print(f"Combined: {len(combined):,} reviews")
 
 # Preprocess

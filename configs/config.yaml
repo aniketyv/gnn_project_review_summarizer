@@ -50,13 +50,13 @@ model:
   num_decoder_layers: 4
   d_ff: 512
   dropout: 0.1
-  max_seq_length: 1024
+  max_seq_length: 256
   activation: "gelu"
   norm_type: "pre"        # pre or post layer norm
 
 # ── PRETRAINING ─────────────────────────────────────────
 pretrain:
-  batch_size: 32
+  batch_size: 8
   epochs: 10
   learning_rate: 0.0003
   weight_decay: 0.01
