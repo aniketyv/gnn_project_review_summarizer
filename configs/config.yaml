@@ -49,7 +49,7 @@ model:
   num_encoder_layers: 4
   num_decoder_layers: 4
   d_ff: 512
-  dropout: 0.1
+  dropout: 0.3   # was 0.1
   max_seq_length: 256
   activation: "gelu"
   norm_type: "pre"        # pre or post layer norm
@@ -68,10 +68,26 @@ pretrain:
   mask_probability: 0.15   # for masked language modeling
 
 # ── FINETUNING ──────────────────────────────────────────
+# finetune:
+#   batch_size: 16
+#   epochs: 20
+#   learning_rate: 0.00005   # always lower than pretrain lr
+#   weight_decay: 0.01
+#   gradient_clip: 1.0
+#   warmup_steps: 500
+#   save_every_epochs: 5
+#   checkpoint_dir: "checkpoints/finetune"
+#   log_every_steps: 50
+#   max_reviews_per_sample: 10
+#   max_summary_length: 80
+#   tgt_max_length: 64                                             
+#   min_reviews_per_business: 2                                    
+#   pretrain_checkpoint: "checkpoints/pretrain/checkpoint_epoch_10.pt"  
+
 finetune:
   batch_size: 16
-  epochs: 20
-  learning_rate: 0.00005   # always lower than pretrain lr
+  epochs: 30              # early stopping will cut this short
+  learning_rate: 0.00005
   weight_decay: 0.01
   gradient_clip: 1.0
   warmup_steps: 500
@@ -80,10 +96,9 @@ finetune:
   log_every_steps: 50
   max_reviews_per_sample: 10
   max_summary_length: 80
-  tgt_max_length: 64                                              # ADD THIS
-  min_reviews_per_business: 3                                     # ADD THIS
-  pretrain_checkpoint: "checkpoints/pretrain/checkpoint_epoch_10.pt"  # ADD THIS
-  
+  tgt_max_length: 64
+  min_reviews_per_business: 2
+  pretrain_checkpoint: "checkpoints/pretrain/checkpoint_epoch_10.pt"
 
 # ── INFERENCE ───────────────────────────────────────────
 inference:

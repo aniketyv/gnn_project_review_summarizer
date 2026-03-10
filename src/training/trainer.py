@@ -139,13 +139,16 @@ class Trainer:
         train_loader: torch.utils.data.DataLoader,
         val_loader:   torch.utils.data.DataLoader,
         criterion:    nn.Module,
-        epochs:       int
-    ):
+        epochs:       int,
+        patience:     int = 4
+        ):
         logger.info(f"Starting training for {epochs} epochs")
         logger.info(f"Device: {self.device}")
         logger.info(f"Checkpoint dir: {self.checkpoint_dir}")
+        logger.info(f"Early stopping patience: {patience}")
 
         best_val_loss = float("inf")
+        no_improve_count = 0
 
         for epoch in range(1, epochs + 1):
             logger.info(f"{'='*50}")
@@ -170,11 +173,26 @@ class Trainer:
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
+                no_improve_count = 0
                 self.save_checkpoint(epoch, train_loss, val_loss)
-                logger.info(f"New best model saved (val_loss={val_loss:.4f})")
+                logger.info(
+                    f"New best model saved (val_loss={val_loss:.4f})"
+                )
+            else:
+                no_improve_count += 1
+                logger.info(
+                    f"No improvement for {no_improve_count} epoch(s). "
+                    f"Best val loss: {best_val_loss:.4f}"
+                )
+                if epoch % self.save_every_epochs == 0:
+                    self.save_checkpoint(epoch, train_loss, val_loss)
 
-            elif epoch % self.save_every_epochs == 0:
-                self.save_checkpoint(epoch, train_loss, val_loss)
+                if no_improve_count >= patience:
+                    logger.info(
+                        f"Early stopping triggered at epoch {epoch}. "
+                        f"Best val loss: {best_val_loss:.4f}"
+                    )
+                    break
 
         self.save_history()
         logger.info("Training complete")

@@ -72,12 +72,36 @@ def run_finetune(config: dict, device: torch.device):
     checkpoint_path = config["finetune"]["pretrain_checkpoint"]
     model = load_pretrained_model(config, device, checkpoint_path)
 
+    # FIX 4: Freeze encoder — preserve pretrained language understanding
+    # Only decoder learns the summarization pattern
+    # Our model started overfitting. We noticed that there were 
+    # 17M parameters is too large for 4,055 examples.
+    # Without Fix 4:
+        # 17,564,288 parameters getting updated
+        # on only 4,055 training pairs
+        
+    # 
+    for param in model.encoder.parameters():
+        param.requires_grad = False
+
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logger.info(f"Trainable parameters after freezing encoder: {trainable:,}")
+
     # Lower learning rate for finetuning
-    # We don't want to destroy pretrained weights
+    # filter() skips frozen encoder parameters
     optimizer = torch.optim.AdamW(
-        model.parameters(),
+        filter(lambda p: p.requires_grad, model.parameters()),
         lr=config["finetune"]["learning_rate"],
         weight_decay=config["finetune"]["weight_decay"]
+    )
+
+    # FIX 5: Cosine scheduler — gradually reduces learning rate
+    # along with FIX 4 we also added a decay in learning rate to prevent overfitting
+    
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=config["finetune"]["epochs"],
+        eta_min=1e-6
     )
 
     criterion = nn.CrossEntropyLoss(ignore_index=-100)
@@ -85,6 +109,7 @@ def run_finetune(config: dict, device: torch.device):
     trainer = FineTuneTrainer(
         model=model,
         optimizer=optimizer,
+        scheduler=scheduler,        # was None, now cosine scheduler
         device=device,
         checkpoint_dir=config["finetune"]["checkpoint_dir"],
         tokenizer=tokenizer,
@@ -98,7 +123,6 @@ def run_finetune(config: dict, device: torch.device):
         criterion=criterion,
         epochs=config["finetune"]["epochs"]
     )
-
 
 class FineTuneTrainer(Trainer):
     """
@@ -139,6 +163,8 @@ class FineTuneTrainer(Trainer):
                 self.model.parameters(), 1.0
             )
             self.optimizer.step()
+            if self.scheduler is not None:
+                self.scheduler.step()
 
             if step % 50 == 0:
                 if torch.backends.mps.is_available():

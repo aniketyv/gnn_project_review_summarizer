@@ -67,13 +67,13 @@ class FinetuneDataset(Dataset):
         self,
         df: pd.DataFrame,
         min_reviews: int
-    ) -> list:
-        """
-        Groups reviews by business.
-        For each business:
-          - finds the most useful review → pseudo-summary
-          - concatenates remaining reviews → input
-        """
+        ) -> list:
+        
+    #  FIX(model started overfitting)
+    # Groups reviews by business.
+    # Each review takes a turn being the summary target.
+    # Remaining reviews become the input.
+    # This gives us many more training pairs than
         pairs = []
 
         grouped = df.groupby("business_id")
@@ -82,29 +82,25 @@ class FinetuneDataset(Dataset):
             if len(group) < min_reviews:
                 continue
 
-            # Sort by useful votes — most useful first
             group = group.sort_values("useful", ascending=False)
+            reviews = group["text"].tolist()
 
-            # Most useful review → pseudo-summary
-            best_review = group.iloc[0]["text"]
-            summary = self._extract_summary(best_review)
+            for i in range(len(reviews)):
+                summary = self._extract_summary(reviews[i])
 
-            # Remaining reviews → input
-            other_reviews = group.iloc[1:]["text"].tolist()
+                others = [reviews[j] for j in range(len(reviews)) if j != i]
+                combined_input = " [SEP] ".join(others[:5])
 
-            # Concatenate reviews with SEP token marker between them
-            combined_input = " [SEP] ".join(other_reviews[:5])
+                if len(summary.split()) < 5:
+                    continue
+                if len(combined_input.split()) < 20:
+                    continue
 
-            if len(summary.split()) < 5:
-                continue
-            if len(combined_input.split()) < 20:
-                continue
-
-            pairs.append({
-                "input":   combined_input,
-                "summary": summary,
-                "business_id": business_id
-            })
+                pairs.append({
+                    "input":       combined_input,
+                    "summary":     summary,
+                    "business_id": business_id
+                })
 
         return pairs
 
