@@ -80,6 +80,10 @@ finetune:
   log_every_steps: 50
   max_reviews_per_sample: 10
   max_summary_length: 80
+  tgt_max_length: 64                                              # ADD THIS
+  min_reviews_per_business: 3                                     # ADD THIS
+  pretrain_checkpoint: "checkpoints/pretrain/checkpoint_epoch_10.pt"  # ADD THIS
+  
 
 # ── INFERENCE ───────────────────────────────────────────
 inference:
