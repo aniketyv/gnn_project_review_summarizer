@@ -125,6 +125,14 @@ class Transformer(nn.Module):
                 next_token_logits = logits[:, -1, :]
                 next_token_logits = next_token_logits / temperature
 
+                # Our model was generating reviews based on positive reviews 
+                
+                # Repetition penalty — divide logits of already generated tokens
+                # Makes model less likely to repeat words it already used
+                for b in range(batch_size):
+                    for token_id in set(generated[b].tolist()):
+                        next_token_logits[b, token_id] /= 1.3
+
                 next_token_logits[:, pad_id] = -1e9
 
                 probs = torch.softmax(next_token_logits, dim=-1)

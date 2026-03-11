@@ -75,7 +75,7 @@ def run_demo():
     print("OPINION SUMMARIZER DEMO")
     print("="*60)
 
-    for i, business_id in enumerate(good_businesses[:5]):
+    for i, business_id in enumerate(good_businesses[:10]):
         reviews = get_business_reviews(yelp_df, business_id)
 
         print(f"\nBusiness {i+1}: {business_id}")
