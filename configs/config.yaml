@@ -15,17 +15,17 @@ data:
   amazon:
     review_files:
       - "data/raw/All_Beauty.jsonl"
-      - "data/raw/Grocery_and_Gourmet.jsonl"
+      - "data/raw/Grocery_and_Gourmet_Food.jsonl"
       - "data/raw/Sports_and_Outdoors.jsonl"
-    max_rows_per_category: 50000
+    max_rows_per_category: 100000
 
   yelp:
     review_file: "data/raw/yelp_academic_dataset_review.json"
-    max_rows: 100000
+    max_rows: 200000
     min_review_length: 50
     max_review_length: 512
-    min_reviews_per_business: 10
-    max_reviews_per_business: 20
+    min_reviews_per_business: 3
+    max_reviews_per_business: 30 
     train_split: 0.70
     val_split: 0.15
     test_split: 0.15

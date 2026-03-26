@@ -44,36 +44,69 @@ class FinetuneDataset(Dataset):
         )
 
     def _extract_summary(self, text: str) -> str:
-        
-        # Extracts first 1-2 sentences from a review
-        # to use as a pseudo-summary.
-        # Short enough to be a summary.
-        # Long enough to have real content.
-        
+        """
+        FIX 2: Use TextRank to extract the most representative
+        sentence from a review instead of just taking the first
+        sentence.
+
+        TextRank ranks sentences by their similarity to all other
+        sentences in the review. The highest ranked sentence is
+        the most central opinion — not just the first thing
+        the reviewer wrote.
+
+        Falls back to first sentence if TextRank fails.
+        """
+        try:
+            from sumy.parsers.plaintext import PlaintextParser
+            from sumy.nlp.tokenizers import Tokenizer
+            from sumy.summarizers.text_rank import TextRankSummarizer
+
+            parser = PlaintextParser.from_string(
+                text, Tokenizer("english")
+            )
+            summarizer = TextRankSummarizer()
+            sentences = summarizer(parser.document, sentences_count=1)
+
+            if sentences:
+                result = str(sentences[0]).strip().lower()
+                if len(result.split()) >= 5:
+                    return result[:200]
+
+        except Exception:
+            pass
+
+        # Fallback: first meaningful sentence
         sentences = re.split(r'(?<=[.!?])\s+', text.strip())
         sentences = [s.strip() for s in sentences if len(s.strip()) > 20]
 
         if not sentences:
-            return text[:100]
+            return text[:100].lower()
 
-        # Take first 2 sentences max, but cap at 80 characters
         summary = sentences[0]
         if len(sentences) > 1 and len(summary) < 60:
             summary = summary + " " + sentences[1]
 
-        return summary[:200]
+        return summary[:200].lower()
 
     def _build_review_summary_pairs(
         self,
         df: pd.DataFrame,
         min_reviews: int
-        ) -> list:
-        
-    #  FIX(model started overfitting)
-    # Groups reviews by business.
-    # Each review takes a turn being the summary target.
-    # Remaining reviews become the input.
-    # This gives us many more training pairs than
+    ) -> list:
+        """
+        FIX 1: Add average star rating as explicit sentiment signal.
+        Prepend [STARS: X.X] to each input so the model knows
+        whether to generate a positive or negative summary.
+
+        FIX 2: Each review takes a turn being the summary target,
+        and TextRank extracts the most representative sentence
+        rather than the first sentence.
+
+        Together these fixes address:
+        - Wrong sentiment (Business 4: 1.8 stars got positive summary)
+        - Generic phrases (model had no sentiment anchor)
+        - Specificity (TextRank picks content-rich sentences)
+        """
         pairs = []
 
         grouped = df.groupby("business_id")
@@ -85,11 +118,37 @@ class FinetuneDataset(Dataset):
             group = group.sort_values("useful", ascending=False)
             reviews = group["text"].tolist()
 
+            # Get star ratings aligned with reviews
+            stars = group["stars"].tolist() \
+                if "stars" in group.columns else [3.0] * len(reviews)
+
             for i in range(len(reviews)):
                 summary = self._extract_summary(reviews[i])
 
-                others = [reviews[j] for j in range(len(reviews)) if j != i]
-                combined_input = " [SEP] ".join(others[:5])
+                # Collect other reviews and their star ratings
+                other_texts = [
+                    reviews[j]
+                    for j in range(len(reviews)) if j != i
+                ][:5]
+
+                other_stars = [
+                    float(stars[j])
+                    for j in range(len(reviews)) if j != i
+                ][:5]
+
+                if not other_texts:
+                    continue
+
+                # FIX 1: Compute average stars and prepend as signal
+                # Round to nearest 0.5 for cleaner token
+                avg_stars = sum(other_stars) / len(other_stars)
+                rounded_stars = round(avg_stars * 2) / 2
+                star_prefix = f"[STARS: {rounded_stars}]"
+
+                combined_input = (
+                    star_prefix + " " +
+                    " [SEP] ".join(other_texts)
+                )
 
                 if len(summary.split()) < 5:
                     continue
@@ -99,7 +158,8 @@ class FinetuneDataset(Dataset):
                 pairs.append({
                     "input":       combined_input,
                     "summary":     summary,
-                    "business_id": business_id
+                    "business_id": business_id,
+                    "avg_stars":   avg_stars
                 })
 
         return pairs
@@ -142,7 +202,7 @@ class FinetuneDataset(Dataset):
         label_ids = label_ids[:self.tgt_max_length]
 
         return {
-            "src_ids":  torch.tensor(src_ids,   dtype=torch.long),
-            "tgt_ids":  torch.tensor(tgt_ids,   dtype=torch.long),
+            "src_ids":   torch.tensor(src_ids,   dtype=torch.long),
+            "tgt_ids":   torch.tensor(tgt_ids,   dtype=torch.long),
             "label_ids": torch.tensor(label_ids, dtype=torch.long)
         }

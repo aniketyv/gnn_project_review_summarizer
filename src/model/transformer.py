@@ -69,8 +69,8 @@ class Transformer(nn.Module):
         self,
         src: torch.Tensor,
         tgt: torch.Tensor,
-        src_mask: torch.Tensor = None, # type: ignore
-        tgt_mask: torch.Tensor = None  # type: ignore
+        src_mask: torch.Tensor = None,  # type: ignore
+        tgt_mask: torch.Tensor = None   # type: ignore
     ) -> tuple:
 
         if src_mask is None:
@@ -90,77 +90,133 @@ class Transformer(nn.Module):
         self,
         src: torch.Tensor,
         tokenizer,
-        max_length: int = 80,
-        temperature: float = 0.7,
-        top_p: float = 0.92
+        max_length:         int   = 80,
+        temperature:        float = 0.7,
+        top_p:              float = 0.92,
+        beam_size:          int   = 4,
+        repetition_penalty: float = 1.3
     ) -> list:
+        # Fix - along with repetation penalty have added beamsearch 
         self.eval()
         device = src.device
         batch_size = src.size(0)
-
-        src_mask = self.make_src_padding_mask(src)
-        encoder_output, _ = self.encoder(src, src_mask)
 
         bos_id = tokenizer.special_tokens["<BOS>"]
         eos_id = tokenizer.special_tokens["<EOS>"]
         pad_id = tokenizer.special_tokens["<PAD>"]
 
-        generated = torch.full(
-            (batch_size, 1),
-            bos_id,
-            dtype=torch.long,
-            device=device
-        )
+        # Encode source once — reuse for all beams
+        src_mask = self.make_src_padding_mask(src)
+        encoder_output, _ = self.encoder(src, src_mask)
 
-        finished = torch.zeros(batch_size, dtype=torch.bool, device=device)
+        results = []
 
         with torch.no_grad():
-            for step in range(max_length):
-                tgt_mask = self.make_tgt_mask(generated)
+            for b in range(batch_size):
 
-                logits, _, _ = self.decoder(
-                    generated, encoder_output, src_mask, tgt_mask
+                # Single item encoder output
+                enc_out  = encoder_output[b].unsqueeze(0)   # (1, src_len, d)
+                src_msk  = src_mask[b].unsqueeze(0)         # (1, 1, 1, src_len)
+
+                # Each beam is (cumulative_log_prob, token_ids_list)
+                beams     = [(0.0, [bos_id])]
+                completed = []
+
+                for _ in range(max_length):
+                    new_beams = []
+
+                    for score, tokens in beams:
+
+                        # If beam already ended just carry it forward
+                        if tokens[-1] == eos_id:
+                            completed.append((score, tokens))
+                            continue
+
+                        tgt = torch.tensor(
+                            [tokens], dtype=torch.long
+                        ).to(device)
+
+                        tgt_mask = self.make_tgt_mask(tgt)
+
+                        logits, _, _ = self.decoder(
+                            tgt, enc_out, src_msk, tgt_mask
+                        )
+
+                        # Take logits for last position only
+                        next_logits = logits[0, -1, :]  # (vocab_size,)
+
+                        # Repetition penalty
+                        # Divides logit of any token already in sequence
+                        # Positive logits shrink, negative logits grow more negative
+                        for token_id in set(tokens):
+                            if next_logits[token_id] > 0:
+                                next_logits[token_id] /= repetition_penalty
+                            else:
+                                next_logits[token_id] *= repetition_penalty
+
+                        # Block PAD token
+                        next_logits[pad_id] = -1e9
+
+                        # Temperature scaling
+                        next_logits = next_logits / temperature
+
+                        # Top-p nucleus filtering
+                        sorted_logits, sorted_idx = torch.sort(
+                            next_logits, descending=True
+                        )
+                        cumulative_probs = torch.cumsum(
+                            torch.softmax(sorted_logits, dim=-1), dim=-1
+                        )
+                        # Remove tokens beyond top_p threshold
+                        sorted_logits[cumulative_probs > top_p] = float("-inf")
+                        next_logits[sorted_idx] = sorted_logits
+
+                        # Convert to log probs for stable scoring
+                        log_probs = torch.log_softmax(next_logits, dim=-1)
+
+                        # Expand top beam_size candidates
+                        top_log_probs, top_tokens = torch.topk(
+                            log_probs, beam_size
+                        )
+
+                        for log_prob, token in zip(
+                            top_log_probs.tolist(),
+                            top_tokens.tolist()
+                        ):
+                            new_score = score + log_prob
+                            new_beams.append(
+                                (new_score, tokens + [token])
+                            )
+
+                    if not new_beams:
+                        break
+
+                    # Keep only top beam_size beams by score
+                    beams = sorted(
+                        new_beams, key=lambda x: x[0], reverse=True
+                    )[:beam_size]
+
+                    # If all beams ended stop early
+                    if all(t[-1] == eos_id for _, t in beams):
+                        completed.extend(beams)
+                        break
+
+                # Collect all finished and unfinished beams
+                all_candidates = completed + beams
+                if not all_candidates:
+                    results.append("")
+                    continue
+
+                # Pick highest scoring sequence
+                best_score, best_tokens = max(
+                    all_candidates, key=lambda x: x[0]
                 )
 
-                next_token_logits = logits[:, -1, :]
-                next_token_logits = next_token_logits / temperature
+                # Strip BOS and EOS
+                output_ids = best_tokens[1:]  # remove BOS
+                if eos_id in output_ids:
+                    output_ids = output_ids[:output_ids.index(eos_id)]
 
-                # Our model was generating reviews based on positive reviews 
-                
-                # Repetition penalty — divide logits of already generated tokens
-                # Makes model less likely to repeat words it already used
-                for b in range(batch_size):
-                    for token_id in set(generated[b].tolist()):
-                        next_token_logits[b, token_id] /= 1.3
+                results.append(tokenizer.decode(output_ids))
 
-                next_token_logits[:, pad_id] = -1e9
-
-                probs = torch.softmax(next_token_logits, dim=-1)
-
-                sorted_probs, sorted_indices = torch.sort(
-                    probs, dim=-1, descending=True
-                )
-                cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
-                sorted_indices_to_remove = cumulative_probs - sorted_probs > top_p
-                sorted_probs[sorted_indices_to_remove] = 0
-                sorted_probs = sorted_probs / sorted_probs.sum(dim=-1, keepdim=True)
-
-                next_tokens = torch.multinomial(sorted_probs, num_samples=1)
-                next_tokens = sorted_indices.gather(-1, next_tokens)
-
-                next_tokens[finished] = pad_id
-                generated = torch.cat([generated, next_tokens], dim=1)
-
-                finished = finished | (next_tokens.squeeze(-1) == eos_id)
-                if finished.all():
-                    break
-
-        summaries = []
-        for i in range(batch_size):
-            tokens = generated[i].tolist()
-            if eos_id in tokens:
-                tokens = tokens[:tokens.index(eos_id)]
-            tokens = tokens[1:]
-            summaries.append(tokenizer.decode(tokens))
-
-        return summaries
+        return results
